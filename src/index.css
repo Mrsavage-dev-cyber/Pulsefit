@@ -1,0 +1,73 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+
+  --color-bg: #0a0b0d;
+  --color-surface: #15171b;
+  --color-surface-2: #1c1f24;
+  --color-surface-3: #24272e;
+  --color-border: rgba(255, 255, 255, 0.08);
+  --color-border-strong: rgba(255, 255, 255, 0.14);
+
+  --color-text: #f5f6f7;
+  --color-text-secondary: #9aa0ac;
+  --color-text-muted: #676c76;
+
+  --color-brand: #3987e5;
+  --color-brand-dim: #1c5cab;
+  --color-aqua: #22b586;
+  --color-orange: #e0703a;
+  --color-yellow: #d69a1f;
+  --color-violet: #9085e9;
+  --color-red: #e66767;
+
+  --color-good: #22c55e;
+  --color-warning: #fab219;
+  --color-critical: #e66767;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+html, body, #root {
+  height: 100%;
+}
+
+body {
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior-y: none;
+}
+
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-surface-3);
+  border-radius: 999px;
+}
+
+.safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+@keyframes fade-in-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-in {
+  animation: fade-in-up 0.35s ease both;
+}
