@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { ChevronDown, Flame, Leaf, Plus, Search, UtensilsCrossed, IceCreamCone } from 'lucide-react'
+import { Camera, ChevronDown, Flame, Leaf, Plus, Search, UtensilsCrossed, IceCreamCone } from 'lucide-react'
 import { Card, CardHeader } from '../ui/Card'
 import {
   CATEGORY_LABELS,
@@ -42,10 +42,12 @@ export function IndianFoodSuggestions({
   goal,
   foodPreferences,
   onPick,
+  onScanPhoto,
 }: {
   goal: Goal
   foodPreferences: FoodPreference[]
   onPick: (food: MealPrefill) => void
+  onScanPhoto: () => void
 }) {
   const [category, setCategory] = useState<FoodCategory>('meals')
   const [query, setQuery] = useState('')
@@ -124,9 +126,17 @@ export function IndianFoodSuggestions({
 
       <div className="space-y-1.5">
         {filtered.length === 0 && (
-          <p className="rounded-xl border border-dashed border-[var(--color-border)] px-3 py-3 text-xs text-[var(--color-text-muted)]">
-            {isSearching ? `No matches for "${query}"` : 'No foods here match your dietary preferences.'}
-          </p>
+          <div className="flex flex-col items-center gap-2.5 rounded-xl border border-dashed border-[var(--color-border)] px-3 py-4 text-center">
+            <p className="text-xs text-[var(--color-text-muted)]">
+              {isSearching ? `No matches for "${query}"` : 'No foods here match your dietary preferences.'}
+            </p>
+            <button
+              onClick={onScanPhoto}
+              className="flex items-center gap-1.5 rounded-full bg-[var(--color-brand)]/10 px-3.5 py-2 text-xs font-semibold text-[var(--color-brand)] hover:bg-[var(--color-brand)]/20"
+            >
+              <Camera size={14} /> Can't find it? Scan a photo instead
+            </button>
+          </div>
         )}
         {items.map((food) => (
           <div

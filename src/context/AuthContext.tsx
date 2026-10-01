@@ -14,6 +14,7 @@ interface AuthContextValue {
   clearJustSignedOut: () => void
   signUp: (email: string, password: string) => Promise<{ error: string | null; needsEmailConfirmation: boolean }>
   signIn: (email: string, password: string) => Promise<{ error: string | null }>
+  signInWithGoogle: () => Promise<{ error: string | null }>
   signOut: () => Promise<void>
 }
 
@@ -67,6 +68,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       async signIn(email, password) {
         const { error } = await supabase.auth.signInWithPassword({ email, password })
         if (!error) setJustSignedIn(true)
+        return { error: error?.message ?? null }
+      },
+      async signInWithGoogle() {
+        const { error } = await supabase.auth.signInWithOAuth({
+          provider: 'google',
+          options: { redirectTo: window.location.origin },
+        })
         return { error: error?.message ?? null }
       },
       async signOut() {

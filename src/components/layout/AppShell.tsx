@@ -1,6 +1,7 @@
 import { NavLink, Outlet } from 'react-router-dom'
 import { Activity, Dumbbell, LayoutDashboard, MessageCircleHeart, Settings as SettingsIcon, Utensils } from 'lucide-react'
 import clsx from 'clsx'
+import { PointsBadge } from '../ui/PointsBadge'
 
 const NAV_ITEMS = [
   { to: '/', label: 'Home', icon: LayoutDashboard, end: true },
@@ -20,6 +21,7 @@ export function AppShell() {
           </div>
           <span className="text-lg font-extrabold tracking-tight">PulseFit</span>
         </div>
+        <PointsBadge className="mb-6" />
         <nav className="space-y-1">
           {NAV_ITEMS.map((item) => (
             <NavLink

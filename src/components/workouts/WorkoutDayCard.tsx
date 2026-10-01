@@ -3,6 +3,7 @@ import clsx from 'clsx'
 import { CheckCircle2, ChevronDown, Circle, Clock, Dumbbell } from 'lucide-react'
 import { Button } from '../ui/Button'
 import { weekdayShort } from '../../lib/calculations'
+import { WORKOUT_COMPLETE_POINTS } from '../../lib/points'
 import { getWorkoutVisual } from '../../lib/workoutVisuals'
 import type { WorkoutDay } from '../../types'
 
@@ -113,7 +114,11 @@ export function WorkoutDayCard({
             disabled={!workout.completed && !allChecked}
             onClick={onToggleComplete}
           >
-            {workout.completed ? 'Mark as not done' : allChecked ? 'Complete workout' : 'Check off all exercises'}
+            {workout.completed
+              ? 'Mark as not done'
+              : allChecked
+                ? `Complete workout (+${WORKOUT_COMPLETE_POINTS} pts)`
+                : 'Check off all exercises'}
           </Button>
         </div>
       )}

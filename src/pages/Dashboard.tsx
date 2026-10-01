@@ -10,6 +10,7 @@ import { QuickActions } from '../components/dashboard/QuickActions'
 import { AddMealModal } from '../components/modals/AddMealModal'
 import { AddWeightModal } from '../components/modals/AddWeightModal'
 import { LogWaterModal } from '../components/modals/LogWaterModal'
+import { PointsBadge } from '../components/ui/PointsBadge'
 import { getLatestWeight, getTodayMeals, getTodayStats, getTodayWorkout, sumMacros } from '../lib/selectors'
 import { getCoachInsight, getWeightInsights } from '../lib/coach'
 
@@ -45,13 +46,16 @@ export function Dashboard() {
           <p className="text-sm text-[var(--color-text-secondary)]">{greeting}, {state.profile.name.split(' ')[0]}</p>
           <h1 className="text-2xl font-extrabold tracking-tight">{GOAL_LABEL[state.profile.goal]}</h1>
         </div>
-        <Link
-          to="/settings"
-          aria-label="Settings"
-          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text-secondary)] transition hover:text-[var(--color-text)]"
-        >
-          <Settings size={16} />
-        </Link>
+        <div className="flex items-center gap-2">
+          <PointsBadge />
+          <Link
+            to="/settings"
+            aria-label="Settings"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text-secondary)] transition hover:text-[var(--color-text)]"
+          >
+            <Settings size={16} />
+          </Link>
+        </div>
       </div>
 
       <CalorieCard targets={state.targets} consumed={macros.calories} protein={macros.protein} carbs={macros.carbs} fat={macros.fat} />

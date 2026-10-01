@@ -1,190 +1,241 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
-import { CheckCircle2, MessageCircleHeart, Sparkles } from 'lucide-react'
+import { AlertCircle, CheckCircle2, MessageCircleHeart, Send, Sparkles } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { Card, CardHeader } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
-import { EmptyState } from '../components/ui/EmptyState'
-import { challengeLabel, generateRecommendation } from '../lib/recommendations'
-import { getChallengeVisual } from '../lib/challengeVisuals'
-import { computeAdaptation } from '../lib/adaptation'
-import { todayISO } from '../lib/calculations'
-import type { Challenge } from '../types'
+import { FormField, TextInput } from '../components/ui/FormField'
+import { challengeLabel } from '../lib/recommendations'
+import { sendCoachMessage, PlanGenerationError } from '../lib/coachChat'
+import { getApiKey, setApiKey } from '../lib/geminiConfig'
+import type { ChatMessage, ChatProposal, Challenge } from '../types'
 
-const ISSUES: Challenge[] = ['hunger', 'low_energy', 'lack_of_time', 'poor_sleep', 'motivation', 'plateau', 'injury_pain']
-
-function formatCheckInDate(iso: string): string {
-  const d = new Date(iso + 'T00:00:00')
-  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
-}
-
-function daysSince(iso: string): number {
-  const d = new Date(iso + 'T00:00:00')
-  return Math.round((Date.now() - d.getTime()) / 86400000)
-}
+const QUICK_PROMPTS: { issue: Challenge; text: string }[] = [
+  { issue: 'hunger', text: "I'm constantly hungry between meals." },
+  { issue: 'low_energy', text: "I've had low energy during workouts lately." },
+  { issue: 'lack_of_time', text: "I don't have enough time for my workouts this week." },
+  { issue: 'plateau', text: "My weight hasn't moved in over two weeks." },
+  { issue: 'injury_pain', text: "I've got some pain that's making certain exercises hard." },
+  { issue: 'motivation', text: "I'm struggling to stay motivated lately." },
+  { issue: 'poor_sleep', text: "I haven't been sleeping well." },
+]
 
 export function CheckIn() {
   const { state, dispatch } = useApp()
-  const [selected, setSelected] = useState<Challenge[]>([])
-  const [notes, setNotes] = useState('')
-  const [recommendation, setRecommendation] = useState<string | null>(null)
-  const [appliedChanges, setAppliedChanges] = useState<string[]>([])
+  const [draft, setDraft] = useState('')
+  const [sending, setSending] = useState(false)
+  const [keyError, setKeyError] = useState('')
+  const [pendingRetry, setPendingRetry] = useState<{ history: ChatMessage[]; text: string; error: string } | null>(null)
+  const [apiKeyInput, setApiKeyInput] = useState(() => getApiKey() ?? '')
+  const bottomRef = useRef<HTMLDivElement>(null)
 
-  function toggle(issue: Challenge) {
-    setSelected((s) => (s.includes(issue) ? s.filter((i) => i !== issue) : [...s, issue]))
-    setRecommendation(null)
-    setAppliedChanges([])
+  const messages = state.coachMessages
+  const hasKey = !!getApiKey()
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
+  }, [messages.length, sending, pendingRetry])
+
+  async function callCoach(apiKey: string, history: ChatMessage[], text: string) {
+    setSending(true)
+    try {
+      const result = await sendCoachMessage(apiKey, state, history, text)
+      const assistantMessage: ChatMessage = {
+        id: `m-${Date.now()}-a`,
+        role: 'assistant',
+        content: result.reply,
+        proposal: result.proposal ?? undefined,
+      }
+      dispatch({ type: 'ADD_COACH_MESSAGE', message: assistantMessage })
+      setPendingRetry(null)
+    } catch (err) {
+      const message = err instanceof PlanGenerationError ? err.message : 'Something went wrong reaching your coach.'
+      setPendingRetry({ history, text, error: message })
+    } finally {
+      setSending(false)
+    }
   }
 
-  function generate() {
-    const rec = generateRecommendation(selected, notes)
-    setRecommendation(rec)
-
-    const adaptation = computeAdaptation(state, selected)
-    if (adaptation) {
-      dispatch({
-        type: 'APPLY_ADAPTATION',
-        targets: adaptation.targets,
-        workoutPlan: adaptation.workoutPlan,
-        challenges: adaptation.challenges,
-        workoutDaysPerWeek: adaptation.workoutDaysPerWeek,
-      })
-      setAppliedChanges(adaptation.changes)
-    } else {
-      setAppliedChanges([])
+  async function send(text: string) {
+    const trimmed = text.trim()
+    if (!trimmed || sending) return
+    const apiKey = getApiKey()
+    if (!apiKey) {
+      setKeyError('Add your Gemini API key below to start chatting.')
+      return
     }
 
-    dispatch({
-      type: 'ADD_CHECKIN',
-      checkIn: { id: `c-${Date.now()}`, date: todayISO(), issues: selected, notes, recommendation: rec },
-    })
-    setSelected([])
-    setNotes('')
+    setKeyError('')
+    const history = messages
+    const userMessage: ChatMessage = { id: `m-${Date.now()}-u`, role: 'user', content: trimmed }
+    dispatch({ type: 'ADD_COACH_MESSAGE', message: userMessage })
+    setDraft('')
+    await callCoach(apiKey, history, trimmed)
   }
 
-  const history = [...state.checkIns].reverse()
-  const lastCheckIn = history[0]
+  function retry() {
+    if (!pendingRetry || sending) return
+    const apiKey = getApiKey()
+    if (!apiKey) return
+    void callCoach(apiKey, pendingRetry.history, pendingRetry.text)
+  }
+
+  function saveKey() {
+    const trimmed = apiKeyInput.trim()
+    if (!trimmed) return
+    setApiKey(trimmed)
+    setApiKeyInput(trimmed)
+    setKeyError('')
+  }
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-extrabold tracking-tight">Check-in</h1>
-        {history.length > 0 && (
-          <span className="rounded-full bg-[var(--color-surface-3)] px-3 py-1 text-xs font-semibold text-[var(--color-text-secondary)]">
-            {history.length} logged
-          </span>
-        )}
-      </div>
+      <h1 className="text-2xl font-extrabold tracking-tight">Check-in</h1>
 
-      <Card className="animate-in border-[var(--color-brand)]/25 bg-gradient-to-br from-[var(--color-brand)]/10 to-transparent">
-        <div className="flex items-start gap-3">
-          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[var(--color-brand)]/15">
-            <MessageCircleHeart size={20} className="text-[var(--color-brand)]" />
-          </div>
-          <div>
-            <p className="text-sm font-bold">How's it going?</p>
-            <p className="mt-0.5 text-xs text-[var(--color-text-secondary)]">
-              {lastCheckIn
-                ? `Last check-in ${daysSince(lastCheckIn.date)===0 ? 'today' : `${daysSince(lastCheckIn.date)}d ago`} — flag what's slowing you down and PulseFit adjusts your plan.`
-                : "Flag what's slowing you down and PulseFit adjusts your calories, macros, or workouts to match."}
-            </p>
-          </div>
+      <Card padded={false} className="flex flex-col">
+        <div className="p-4">
+          <CardHeader title="Chat with your coach" subtitle="Tell it what's going on — it'll ask questions and adjust your plan if it makes sense" />
         </div>
-      </Card>
 
-      <Card className="animate-in">
-        <CardHeader title="What is making progress difficult right now?" subtitle="Select all that apply" />
-        <div className="mb-4 flex flex-wrap gap-2">
-          {ISSUES.map((issue) => {
-            const { icon: Icon, color } = getChallengeVisual(issue)
-            const active = selected.includes(issue)
-            return (
-              <button
-                key={issue}
-                onClick={() => toggle(issue)}
-                className={clsx(
-                  'flex items-center gap-1.5 rounded-full border px-3.5 py-2 text-xs font-semibold transition',
-                  active ? 'border-transparent text-white' : 'border-[var(--color-border)] bg-[var(--color-surface-2)] text-[var(--color-text-secondary)]',
-                )}
-                style={active ? { backgroundColor: color } : undefined}
-              >
-                <Icon size={14} style={active ? undefined : { color }} />
-                {challengeLabel(issue)}
-              </button>
-            )
-          })}
-        </div>
-        <textarea
-          value={notes}
-          onChange={(e) => setNotes(e.target.value)}
-          placeholder="Anything else you want to note? (optional)"
-          rows={3}
-          className="mb-4 w-full resize-none rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3.5 py-2.5 text-sm outline-none placeholder:text-[var(--color-text-muted)] focus:border-[var(--color-brand)]"
-        />
-        <Button className="w-full" disabled={selected.length === 0} onClick={generate}>
-          <Sparkles size={16} /> Get my recommendation
-        </Button>
-      </Card>
-
-      {recommendation && (
-        <Card className="animate-in border-[var(--color-brand)]/30 bg-[var(--color-brand)]/10">
-          <div className="flex gap-3">
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--color-brand)]/20 text-[var(--color-brand)]">
-              <Sparkles size={16} />
+        <div className="space-y-3 px-4">
+          {messages.length === 0 && (
+            <div className="flex flex-col items-center gap-2.5 rounded-xl border border-dashed border-[var(--color-border)] px-4 py-8 text-center">
+              <MessageCircleHeart size={24} className="text-[var(--color-brand)]" />
+              <p className="max-w-xs text-xs text-[var(--color-text-secondary)]">
+                Hunger, low energy, a plateau, no time, an injury — tell your coach what's slowing you down.
+              </p>
             </div>
-            <div>
-              <p className="text-xs font-bold uppercase tracking-wide text-[var(--color-text-secondary)]">Adaptive recommendation</p>
-              <p className="mt-1 whitespace-pre-line text-sm leading-relaxed">{recommendation}</p>
+          )}
+
+          {messages.map((m) => (
+            <ChatBubble key={m.id} message={m} onApply={() => dispatch({ type: 'APPLY_COACH_PROPOSAL', messageId: m.id })} />
+          ))}
+
+          {sending && (
+            <div className="flex items-center gap-2 text-xs text-[var(--color-text-secondary)]">
+              <Sparkles size={14} className="animate-pulse text-[var(--color-brand)]" /> Coach is typing…
             </div>
-          </div>
-        </Card>
-      )}
+          )}
 
-      {appliedChanges.length > 0 && (
-        <Card className="animate-in border-[var(--color-good)]/30 bg-[var(--color-good)]/10">
-          <p className="mb-2 text-xs font-bold uppercase tracking-wide text-[var(--color-text-secondary)]">Applied to your plan</p>
-          <ul className="space-y-1.5">
-            {appliedChanges.map((c, i) => (
-              <li key={i} className="flex gap-2 text-sm">
-                <CheckCircle2 size={15} className="mt-0.5 shrink-0 text-[var(--color-good)]" />
-                <span>{c}</span>
-              </li>
-            ))}
-          </ul>
-        </Card>
-      )}
-
-      <Card className="animate-in">
-        <CardHeader title="Past check-ins" />
-        {history.length === 0 ? (
-          <EmptyState icon={MessageCircleHeart} title="No check-ins yet" description="Your check-in history will appear here." />
-        ) : (
-          <div className="space-y-2">
-            {history.map((c) => (
-              <div key={c.id} className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)] p-3.5">
-                <p className="mb-2 text-xs font-semibold text-[var(--color-text-secondary)]">{formatCheckInDate(c.date)}</p>
-                <div className="mb-2 flex flex-wrap gap-1.5">
-                  {c.issues.map((i) => {
-                    const { icon: Icon, color } = getChallengeVisual(i)
-                    return (
-                      <span
-                        key={i}
-                        className="flex items-center gap-1 rounded-full bg-[var(--color-surface-3)] px-2 py-0.5 text-[10px] font-semibold"
-                      >
-                        <Icon size={10} style={{ color }} /> {challengeLabel(i)}
-                      </span>
-                    )
-                  })}
-                </div>
-                {c.notes && <p className="mb-1 text-xs italic text-[var(--color-text-muted)]">"{c.notes}"</p>}
-                {c.recommendation && (
-                  <p className="whitespace-pre-line text-xs leading-relaxed text-[var(--color-text-secondary)]">{c.recommendation}</p>
-                )}
+          {!sending && pendingRetry && (
+            <div className="flex items-center justify-between gap-3 rounded-xl border border-[var(--color-critical)]/30 bg-[var(--color-critical)]/10 px-3.5 py-2.5">
+              <div className="flex items-start gap-2">
+                <AlertCircle size={15} className="mt-0.5 shrink-0 text-[var(--color-critical)]" />
+                <p className="text-xs leading-relaxed text-[var(--color-critical)]">{pendingRetry.error}</p>
               </div>
+              <Button size="sm" variant="secondary" className="shrink-0" onClick={retry}>
+                Retry
+              </Button>
+            </div>
+          )}
+
+          <div ref={bottomRef} />
+        </div>
+
+        {messages.length === 0 && (
+          <div className="flex flex-wrap gap-1.5 px-4 pb-3 pt-3">
+            {QUICK_PROMPTS.map((p) => (
+              <button
+                key={p.issue}
+                onClick={() => setDraft(p.text)}
+                className="rounded-full border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 py-1.5 text-xs font-semibold text-[var(--color-text-secondary)] hover:text-[var(--color-text)]"
+              >
+                {challengeLabel(p.issue)}
+              </button>
             ))}
           </div>
         )}
+
+        <div className="border-t border-[var(--color-border)] p-4">
+          {!hasKey ? (
+            <div className="space-y-3">
+              <p className="text-xs text-[var(--color-text-secondary)]">Add your Gemini API key to start chatting with your coach.</p>
+              <FormField label="Gemini API key">
+                <TextInput
+                  type="password"
+                  value={apiKeyInput}
+                  onChange={(e) => setApiKeyInput(e.target.value)}
+                  placeholder="AIza..."
+                  autoComplete="off"
+                />
+              </FormField>
+              <Button className="w-full" onClick={saveKey} disabled={!apiKeyInput.trim()}>
+                Save key
+              </Button>
+            </div>
+          ) : (
+            <form
+              onSubmit={(e) => {
+                e.preventDefault()
+                void send(draft)
+              }}
+              className="flex items-end gap-2"
+            >
+              <textarea
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault()
+                    void send(draft)
+                  }
+                }}
+                placeholder="Tell your coach what's going on..."
+                rows={1}
+                className="max-h-32 flex-1 resize-none rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3.5 py-2.5 text-sm outline-none placeholder:text-[var(--color-text-muted)] focus:border-[var(--color-brand)]"
+              />
+              <Button type="submit" disabled={sending || !draft.trim()} aria-label="Send">
+                <Send size={16} />
+              </Button>
+            </form>
+          )}
+          {keyError && <p className="mt-2 text-xs text-[var(--color-critical)]">{keyError}</p>}
+        </div>
       </Card>
+    </div>
+  )
+}
+
+function ChatBubble({ message, onApply }: { message: ChatMessage; onApply: () => void }) {
+  const isUser = message.role === 'user'
+  return (
+    <div className={clsx('flex', isUser ? 'justify-end' : 'justify-start')}>
+      <div className="max-w-[85%] space-y-2">
+        <div
+          className={clsx(
+            'whitespace-pre-line rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed',
+            isUser ? 'bg-[var(--color-brand)] text-white' : 'border border-[var(--color-border)] bg-[var(--color-surface-2)]',
+          )}
+        >
+          {message.content}
+        </div>
+        {message.proposal && <ProposalCard proposal={message.proposal} onApply={onApply} />}
+      </div>
+    </div>
+  )
+}
+
+function ProposalCard({ proposal, onApply }: { proposal: ChatProposal; onApply: () => void }) {
+  return (
+    <div className="rounded-xl border border-[var(--color-brand)]/30 bg-[var(--color-brand)]/10 p-3">
+      <p className="mb-1.5 text-xs font-bold uppercase tracking-wide text-[var(--color-brand)]">Suggested update</p>
+      <ul className="mb-2.5 space-y-1">
+        {proposal.changes.map((c, i) => (
+          <li key={i} className="flex gap-1.5 text-xs leading-relaxed">
+            <CheckCircle2 size={13} className="mt-0.5 shrink-0 text-[var(--color-brand)]" />
+            <span>{c}</span>
+          </li>
+        ))}
+      </ul>
+      {proposal.applied ? (
+        <p className="flex items-center gap-1 text-xs font-semibold text-[var(--color-good)]">
+          <CheckCircle2 size={13} /> Applied to your plan
+        </p>
+      ) : (
+        <Button size="sm" onClick={onApply}>
+          Apply to my plan
+        </Button>
+      )}
     </div>
   )
 }

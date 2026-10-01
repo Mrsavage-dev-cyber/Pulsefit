@@ -1,19 +1,5 @@
-import Anthropic from '@anthropic-ai/sdk'
-import { zodOutputFormat } from '@anthropic-ai/sdk/helpers/zod'
-import { z } from 'zod'
-
-const DetectedFoodSchema = z.object({
-  name: z.string().describe('Short name of the food item, e.g. "Chicken curry" or "Steamed rice"'),
-  estimatedQuantity: z.string().describe('Best-guess portion size in a natural unit, e.g. "1 bowl", "200g", "2 rotis"'),
-  calories: z.number().describe('Estimated total calories for the portion shown'),
-  protein: z.number().describe('Estimated protein in grams'),
-  carbs: z.number().describe('Estimated carbohydrates in grams'),
-  fat: z.number().describe('Estimated fat in grams'),
-})
-
-const PhotoAnalysisSchema = z.object({
-  items: z.array(DetectedFoodSchema).describe('Every distinct food item visible in the photo, logged separately (e.g. curry separate from rice)'),
-})
+import { Type } from '@google/genai'
+import { createGeminiClient, describeGeminiError, withGeminiRetries, GEMINI_VISION_MODEL } from './gemini'
 
 export interface DetectedFood {
   name: string
@@ -26,49 +12,67 @@ export interface DetectedFood {
 
 export class FoodPhotoAnalysisError extends Error {}
 
-export async function analyzeFoodPhoto(apiKey: string, base64Data: string, mediaType: string): Promise<DetectedFood[]> {
-  const client = new Anthropic({ apiKey, dangerouslyAllowBrowser: true })
-
-  let response
-  try {
-    response = await client.messages.parse({
-      model: 'claude-opus-5',
-      max_tokens: 2048,
-      messages: [
-        {
-          role: 'user',
-          content: [
-            {
-              type: 'image',
-              source: { type: 'base64', media_type: mediaType as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp', data: base64Data },
-            },
-            {
-              type: 'text',
-              text: 'Identify every distinct food item in this photo (an Indian home-cooked plate may have several — curry, rice, roti, dal, etc. — list each separately). For each, estimate the portion size and its calories, protein, carbs, and fat based on what is visibly on the plate. Give your best estimate even if not 100% certain.',
-            },
-          ],
+const RESPONSE_SCHEMA = {
+  type: Type.OBJECT,
+  properties: {
+    items: {
+      type: Type.ARRAY,
+      description: 'Every distinct food item visible in the photo, logged separately (e.g. curry separate from rice)',
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          name: { type: Type.STRING, description: 'Short name of the food item, e.g. "Chicken curry" or "Steamed rice"' },
+          estimatedQuantity: { type: Type.STRING, description: 'Best-guess portion size in a natural unit, e.g. "1 bowl", "200g", "2 rotis"' },
+          calories: { type: Type.NUMBER, description: 'Estimated total calories for the portion shown' },
+          protein: { type: Type.NUMBER, description: 'Estimated protein in grams' },
+          carbs: { type: Type.NUMBER, description: 'Estimated carbohydrates in grams' },
+          fat: { type: Type.NUMBER, description: 'Estimated fat in grams' },
         },
-      ],
-      output_config: {
-        format: zodOutputFormat(PhotoAnalysisSchema),
+        required: ['name', 'estimatedQuantity', 'calories', 'protein', 'carbs', 'fat'],
       },
-    })
+    },
+  },
+  required: ['items'],
+}
+
+export async function analyzeFoodPhoto(apiKey: string, base64Data: string, mediaType: string): Promise<DetectedFood[]> {
+  const ai = createGeminiClient(apiKey)
+
+  let text: string | undefined
+  try {
+    const response = await withGeminiRetries(() =>
+      ai.models.generateContent({
+        model: GEMINI_VISION_MODEL,
+        contents: [
+          {
+            role: 'user',
+            parts: [
+              { inlineData: { mimeType: mediaType, data: base64Data } },
+              {
+                text: 'Identify every distinct food item in this photo (an Indian home-cooked plate may have several — curry, rice, roti, dal, etc. — list each separately). For each, estimate the portion size and its calories, protein, carbs, and fat based on what is visibly on the plate. Give your best estimate even if not 100% certain.',
+              },
+            ],
+          },
+        ],
+        config: {
+          responseMimeType: 'application/json',
+          responseSchema: RESPONSE_SCHEMA,
+        },
+      }),
+    )
+    text = response.text
   } catch (err) {
-    if (err instanceof Anthropic.AuthenticationError) {
-      throw new FoodPhotoAnalysisError('That API key was rejected. Check it in Settings.')
-    }
-    if (err instanceof Anthropic.RateLimitError) {
-      throw new FoodPhotoAnalysisError('Rate limited by the API. Try again in a moment.')
-    }
-    if (err instanceof Anthropic.APIError) {
-      throw new FoodPhotoAnalysisError(`API error: ${err.message}`)
-    }
-    throw new FoodPhotoAnalysisError('Could not reach the AI service. Check your connection.')
+    throw new FoodPhotoAnalysisError(describeGeminiError(err))
   }
 
-  if (!response.parsed_output) {
+  if (!text) {
     throw new FoodPhotoAnalysisError('Could not read the food in that photo. Try a clearer, closer shot.')
   }
 
-  return response.parsed_output.items
+  try {
+    const parsed = JSON.parse(text) as { items: DetectedFood[] }
+    return parsed.items
+  } catch {
+    throw new FoodPhotoAnalysisError('Could not read the food in that photo. Try a clearer, closer shot.')
+  }
 }

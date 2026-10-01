@@ -1,11 +1,12 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import clsx from 'clsx'
 import { Activity, ArrowLeft, ArrowRight, Check, Sparkles } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { Button } from '../components/ui/Button'
 import { FormField, TextInput } from '../components/ui/FormField'
-import { computeTargets } from '../lib/calculations'
+import { generatePlan, PlanGenerationError } from '../lib/planGenerator'
+import { getApiKey, setApiKey } from '../lib/geminiConfig'
 import { challengeLabel } from '../lib/recommendations'
 import type {
   ActivityLevel,
@@ -13,8 +14,11 @@ import type {
   Experience,
   FoodPreference,
   Goal,
+  MealPlan,
   Sex,
+  Targets,
   UserProfile,
+  WorkoutDay,
 } from '../types'
 
 const GOAL_OPTIONS: { value: Goal; title: string; desc: string }[] = [
@@ -124,15 +128,54 @@ export function Onboarding() {
     }
   }, [draft, canProceed, step])
 
-  const targetsPreview = useMemo(() => (previewProfile ? computeTargets(previewProfile) : null), [previewProfile])
+  const [apiKeyInput, setApiKeyInput] = useState(() => getApiKey() ?? '')
+  const [plan, setPlan] = useState<{ targets: Targets; workoutPlan: WorkoutDay[]; mealPlan: MealPlan } | null>(null)
+  const [generating, setGenerating] = useState(false)
+  const [genError, setGenError] = useState('')
 
   function toggleMulti<T>(list: T[], value: T): T[] {
     return list.includes(value) ? list.filter((v) => v !== value) : [...list, value]
   }
 
-  function finish() {
+  async function generate() {
     if (!previewProfile) return
-    dispatch({ type: 'ONBOARD', profile: previewProfile })
+    const key = getApiKey()
+    if (!key) return
+    setGenerating(true)
+    setGenError('')
+    try {
+      const result = await generatePlan(key, previewProfile)
+      setPlan(result)
+    } catch (err) {
+      setGenError(err instanceof PlanGenerationError ? err.message : 'Something went wrong generating your plan.')
+    } finally {
+      setGenerating(false)
+    }
+  }
+
+  function saveKeyAndGenerate() {
+    const trimmed = apiKeyInput.trim()
+    if (!trimmed) return
+    setApiKey(trimmed)
+    void generate()
+  }
+
+  useEffect(() => {
+    if (step === 5 && getApiKey() && !plan && !generating && !genError) {
+      void generate()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step])
+
+  function finish() {
+    if (!previewProfile || !plan) return
+    dispatch({
+      type: 'ONBOARD',
+      profile: previewProfile,
+      targets: plan.targets,
+      workoutPlan: plan.workoutPlan,
+      mealPlan: plan.mealPlan,
+    })
     navigate('/', { replace: true })
   }
 
@@ -325,37 +368,82 @@ export function Onboarding() {
           </div>
         )}
 
-        {step === 5 && targetsPreview && previewProfile && (
+        {step === 5 && previewProfile && !getApiKey() && (
+          <div className="space-y-4">
+            <p className="text-sm text-[var(--color-text-secondary)]">
+              PulseFit uses Google's Gemini API to generate your personalized nutrition targets and workout plan. Add
+              your API key to continue.
+            </p>
+            <FormField label="Gemini API key" hint="Get one at aistudio.google.com/apikey. Stored only in this browser's local storage.">
+              <TextInput
+                type="password"
+                value={apiKeyInput}
+                onChange={(e) => setApiKeyInput(e.target.value)}
+                placeholder="AIza..."
+                autoComplete="off"
+              />
+            </FormField>
+            <Button className="w-full" onClick={saveKeyAndGenerate} disabled={!apiKeyInput.trim()}>
+              <Sparkles size={16} /> Generate my plan
+            </Button>
+          </div>
+        )}
+
+        {step === 5 && previewProfile && getApiKey() && generating && (
+          <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
+            <Sparkles size={24} className="animate-pulse text-[var(--color-brand)]" />
+            <p className="text-sm font-medium text-[var(--color-text-secondary)]">Gemini is building your nutrition targets and workout plan…</p>
+          </div>
+        )}
+
+        {step === 5 && previewProfile && getApiKey() && !generating && genError && (
+          <div className="space-y-4">
+            <p className="text-sm text-[var(--color-critical)]">{genError}</p>
+            <Button className="w-full" onClick={() => void generate()}>
+              Try again
+            </Button>
+          </div>
+        )}
+
+        {step === 5 && plan && previewProfile && (
           <div className="space-y-4">
             <div className="rounded-2xl border border-[var(--color-brand)]/30 bg-[var(--color-brand)]/10 p-4">
               <div className="mb-1 flex items-center gap-1.5 text-[var(--color-brand)]">
                 <Sparkles size={16} />
                 <span className="text-xs font-bold uppercase tracking-wide">Your personalized plan</span>
               </div>
-              <p className="text-3xl font-extrabold tabular">{targetsPreview.calorieTarget.toLocaleString()} <span className="text-base font-medium text-[var(--color-text-secondary)]">kcal/day</span></p>
+              <p className="text-3xl font-extrabold tabular">{plan.targets.calorieTarget.toLocaleString()} <span className="text-base font-medium text-[var(--color-text-secondary)]">kcal/day</span></p>
             </div>
             <div className="grid grid-cols-3 gap-3">
-              <MacroStat label="Protein" value={targetsPreview.proteinG} color="var(--color-brand)" />
-              <MacroStat label="Carbs" value={targetsPreview.carbG} color="var(--color-orange)" />
-              <MacroStat label="Fat" value={targetsPreview.fatG} color="var(--color-violet)" />
+              <MacroStat label="Protein" value={plan.targets.proteinG} color="var(--color-brand)" />
+              <MacroStat label="Carbs" value={plan.targets.carbG} color="var(--color-orange)" />
+              <MacroStat label="Fat" value={plan.targets.fatG} color="var(--color-violet)" />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)] p-3">
                 <p className="text-xs text-[var(--color-text-secondary)]">Step goal</p>
-                <p className="text-lg font-bold tabular">{targetsPreview.stepGoal.toLocaleString()}</p>
+                <p className="text-lg font-bold tabular">{plan.targets.stepGoal.toLocaleString()}</p>
               </div>
               <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)] p-3">
                 <p className="text-xs text-[var(--color-text-secondary)]">Weekly weight target</p>
                 <p className="text-lg font-bold tabular">
-                  {targetsPreview.weeklyWeightChangeKg > 0 ? '+' : ''}
-                  {targetsPreview.weeklyWeightChangeKg.toFixed(2)} kg
+                  {plan.targets.weeklyWeightChangeKg > 0 ? '+' : ''}
+                  {plan.targets.weeklyWeightChangeKg.toFixed(2)} kg
                 </p>
               </div>
             </div>
+            <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)] p-3">
+              <p className="mb-1 text-xs font-semibold text-[var(--color-text-secondary)]">
+                Meal plan · {plan.mealPlan.meals.length} meals/snacks
+              </p>
+              <p className="text-[11px] leading-relaxed text-[var(--color-text-muted)]">
+                {plan.mealPlan.meals.map((m) => m.name).join(' · ')}
+              </p>
+            </div>
             <p className="rounded-xl bg-[var(--color-surface-2)] p-3 text-[11px] leading-relaxed text-[var(--color-text-muted)]">
-              This is general wellness guidance based on standard formulas, not medical advice. Consult a qualified
-              healthcare professional before starting a new nutrition or exercise program, especially if you have any
-              medical conditions.
+              This plan was generated by Gemini and is general wellness guidance, not medical advice. Consult a
+              qualified healthcare professional before starting a new nutrition or exercise program, especially if
+              you have any medical conditions.
             </p>
           </div>
         )}
@@ -372,7 +460,7 @@ export function Onboarding() {
             Next <ArrowRight size={16} />
           </Button>
         ) : (
-          <Button className="flex-1" onClick={finish}>
+          <Button className="flex-1" onClick={finish} disabled={!plan}>
             <Check size={16} /> Start using PulseFit
           </Button>
         )}

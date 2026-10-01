@@ -1,15 +1,17 @@
 import { useState } from 'react'
-import { Camera } from 'lucide-react'
+import { Camera, CheckCircle2, Trophy } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { Card, CardHeader } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
 import { ProgressBar } from '../components/ui/ProgressBar'
 import { MealList } from '../components/nutrition/MealList'
+import { MealPlanCard } from '../components/nutrition/MealPlanCard'
 import { IndianFoodSuggestions } from '../components/nutrition/IndianFoodSuggestions'
 import { AddMealModal, type MealPrefill } from '../components/modals/AddMealModal'
 import { PhotoScanModal } from '../components/modals/PhotoScanModal'
 import { getTodayMeals, sumMacros } from '../lib/selectors'
 import { todayISO } from '../lib/calculations'
+import { NUTRITION_GOAL_POINTS } from '../lib/points'
 import type { IndianFood } from '../lib/indianFoods'
 import type { DetectedFood } from '../lib/foodPhotoAnalysis'
 import type { MealType } from '../types'
@@ -28,6 +30,7 @@ export function Nutrition() {
   const meals = getTodayMeals(state)
   const macros = sumMacros(meals)
   const remaining = targets.calorieTarget - macros.calories
+  const nutritionPointsEarned = state.points.awardedNutritionDates.includes(todayISO())
 
   function openAdd(type: MealType) {
     setDefaultType(type)
@@ -94,6 +97,15 @@ export function Nutrition() {
 
       <Card>
         <CardHeader title="Today's totals" subtitle={`${remaining >= 0 ? remaining : 0} kcal remaining`} />
+        {nutritionPointsEarned ? (
+          <p className="mb-3 flex items-center gap-1.5 text-xs font-semibold text-[var(--color-good)]">
+            <CheckCircle2 size={13} /> +{NUTRITION_GOAL_POINTS} pts earned today
+          </p>
+        ) : (
+          <p className="mb-3 flex items-center gap-1.5 text-xs text-[var(--color-text-secondary)]">
+            <Trophy size={13} /> Hit your calorie &amp; protein goals to earn +{NUTRITION_GOAL_POINTS} pts
+          </p>
+        )}
         <p className="tabular mb-3 text-3xl font-extrabold">
           {macros.calories.toLocaleString()} <span className="text-base font-medium text-[var(--color-text-secondary)]">/ {targets.calorieTarget.toLocaleString()} kcal</span>
         </p>
@@ -103,6 +115,8 @@ export function Nutrition() {
           <ProgressBar value={macros.fat} max={targets.fatG} color="var(--color-violet)" label="Fat" valueLabel={`${macros.fat}/${targets.fatG}g`} />
         </div>
       </Card>
+
+      <MealPlanCard />
 
       <Card>
         <CardHeader title="Meals" />
@@ -117,7 +131,12 @@ export function Nutrition() {
         />
       </Card>
 
-      <IndianFoodSuggestions goal={profile.goal} foodPreferences={profile.foodPreferences} onPick={pickSuggestion} />
+      <IndianFoodSuggestions
+        goal={profile.goal}
+        foodPreferences={profile.foodPreferences}
+        onPick={pickSuggestion}
+        onScanPhoto={() => setPhotoModalOpen(true)}
+      />
 
       <AddMealModal
         open={modalOpen}

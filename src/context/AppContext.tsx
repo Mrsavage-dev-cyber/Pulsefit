@@ -1,27 +1,23 @@
 import { createContext, useContext, useEffect, useMemo, useReducer, type ReactNode } from 'react'
-import { computeTargets, formatDate } from '../lib/calculations'
+import { formatDate } from '../lib/calculations'
+import { awardNutritionPoints, awardWorkoutPoints, emptyPoints, nutritionGoalMet, revokeWorkoutPoints } from '../lib/points'
 import { seedDailyStats, seedTodayMeals } from '../lib/seedData'
+import { sumMacros } from '../lib/selectors'
 import { loadState, saveState } from '../lib/storage'
-import { generateWorkoutPlan } from '../lib/workoutPlans'
-import type { AppState, Challenge, CheckIn, Meal, Targets, UserProfile, WeightEntry, WorkoutDay } from '../types'
+import type { AppState, ChatMessage, Meal, MealPlan, Targets, UserProfile, WeightEntry, WorkoutDay } from '../types'
 
 type Action =
-  | { type: 'ONBOARD'; profile: UserProfile }
+  | { type: 'ONBOARD'; profile: UserProfile; targets: Targets; workoutPlan: WorkoutDay[]; mealPlan: MealPlan | null }
   | { type: 'ADD_WEIGHT_ENTRY'; entry: WeightEntry }
   | { type: 'ADD_MEAL'; meal: Meal }
   | { type: 'DELETE_MEAL'; id: string }
   | { type: 'LOG_WATER'; ml: number }
   | { type: 'ADD_STEPS'; steps: number }
   | { type: 'TOGGLE_WORKOUT'; id: string }
-  | { type: 'ADD_CHECKIN'; checkIn: CheckIn }
-  | {
-      type: 'APPLY_ADAPTATION'
-      targets: Targets
-      workoutPlan: WorkoutDay[]
-      challenges: Challenge[]
-      workoutDaysPerWeek: number
-    }
-  | { type: 'RECALC_TARGETS' }
+  | { type: 'ADD_COACH_MESSAGE'; message: ChatMessage }
+  | { type: 'APPLY_COACH_PROPOSAL'; messageId: string }
+  | { type: 'RECALC_TARGETS'; targets: Targets }
+  | { type: 'SET_MEAL_PLAN'; mealPlan: MealPlan }
   | { type: 'RESET' }
 
 const emptyState: AppState = {
@@ -31,8 +27,10 @@ const emptyState: AppState = {
   meals: [],
   workoutPlan: [],
   dailyStats: [],
-  checkIns: [],
+  coachMessages: [],
   currentWeekStart: '',
+  points: emptyPoints(),
+  mealPlan: null,
 }
 
 function todayISO(): string {
@@ -74,22 +72,19 @@ function normalize(state: AppState): AppState {
 function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
     case 'ONBOARD': {
-      const targets = computeTargets(action.profile)
+      const { targets } = action
       const startDate = formatDate(new Date(action.profile.createdAt))
       return {
         profile: action.profile,
         targets,
         weightEntries: [{ id: `w-${startDate}`, date: startDate, weightKg: action.profile.currentWeightKg }],
         meals: seedTodayMeals(targets),
-        workoutPlan: generateWorkoutPlan(
-          action.profile.goal,
-          action.profile.experience,
-          action.profile.workoutDaysPerWeek,
-          action.profile.challenges,
-        ),
+        workoutPlan: action.workoutPlan,
         dailyStats: seedDailyStats(targets),
-        checkIns: [],
+        coachMessages: [],
         currentWeekStart: mondayOf(todayISO()),
+        points: emptyPoints(),
+        mealPlan: action.mealPlan,
       }
     }
     case 'ADD_WEIGHT_ENTRY': {
@@ -120,30 +115,38 @@ function reducer(state: AppState, action: Action): AppState {
       return { ...s, dailyStats: stats }
     }
     case 'TOGGLE_WORKOUT': {
+      const workout = state.workoutPlan.find((w) => w.id === action.id)
+      if (!workout) return state
+      const completed = !workout.completed
       return {
         ...state,
-        workoutPlan: state.workoutPlan.map((w) => (w.id === action.id ? { ...w, completed: !w.completed } : w)),
+        workoutPlan: state.workoutPlan.map((w) => (w.id === action.id ? { ...w, completed } : w)),
+        points: completed ? awardWorkoutPoints(state.points, action.id) : revokeWorkoutPoints(state.points, action.id),
       }
     }
-    case 'ADD_CHECKIN': {
-      return { ...state, checkIns: [...state.checkIns, action.checkIn] }
+    case 'ADD_COACH_MESSAGE': {
+      return { ...state, coachMessages: [...state.coachMessages, action.message] }
     }
-    case 'APPLY_ADAPTATION': {
-      if (!state.profile) return state
+    case 'APPLY_COACH_PROPOSAL': {
+      const message = state.coachMessages.find((m) => m.id === action.messageId)
+      if (!message?.proposal || message.proposal.applied || !state.profile) return state
+      const { proposal } = message
       return {
         ...state,
-        targets: action.targets,
-        workoutPlan: action.workoutPlan,
-        profile: {
-          ...state.profile,
-          challenges: action.challenges,
-          workoutDaysPerWeek: action.workoutDaysPerWeek,
-        },
+        targets: proposal.targets,
+        workoutPlan: proposal.workoutPlan,
+        profile: { ...state.profile, workoutDaysPerWeek: proposal.workoutDaysPerWeek },
+        coachMessages: state.coachMessages.map((m) =>
+          m.id === action.messageId ? { ...m, proposal: { ...proposal, applied: true } } : m,
+        ),
       }
     }
     case 'RECALC_TARGETS': {
       if (!state.profile) return state
-      return { ...state, targets: computeTargets(state.profile) }
+      return { ...state, targets: action.targets }
+    }
+    case 'SET_MEAL_PLAN': {
+      return { ...state, mealPlan: action.mealPlan }
     }
     case 'RESET':
       return emptyState
@@ -152,8 +155,20 @@ function reducer(state: AppState, action: Action): AppState {
   }
 }
 
+function applyNutritionPoints(state: AppState): AppState {
+  if (!state.targets) return state
+  const today = todayISO()
+  const todaysMeals = state.meals.filter((m) => m.date === today)
+  if (todaysMeals.length === 0) return state
+  const macros = sumMacros(todaysMeals)
+  if (!nutritionGoalMet(macros, state.targets)) return state
+  const points = awardNutritionPoints(state.points, today)
+  if (points === state.points) return state
+  return { ...state, points }
+}
+
 function reducerWithNormalize(state: AppState, action: Action): AppState {
-  return reducer(normalize(state), action)
+  return applyNutritionPoints(reducer(normalize(state), action))
 }
 
 interface AppContextValue {
@@ -167,7 +182,7 @@ function isValidState(loaded: unknown): loaded is AppState {
   if (!loaded || typeof loaded !== 'object') return false
   const s = loaded as Partial<AppState>
   if (!Array.isArray(s.weightEntries) || !Array.isArray(s.meals) || !Array.isArray(s.workoutPlan)) return false
-  if (!Array.isArray(s.dailyStats) || !Array.isArray(s.checkIns)) return false
+  if (!Array.isArray(s.dailyStats)) return false
   if (s.profile && !s.targets) return false
   return true
 }
@@ -176,7 +191,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(reducerWithNormalize, emptyState, () => {
     const loaded = loadState<AppState>()
     if (!isValidState(loaded)) return emptyState
-    return normalize({ ...loaded, currentWeekStart: loaded.currentWeekStart ?? '' })
+    return normalize({
+      ...loaded,
+      currentWeekStart: loaded.currentWeekStart ?? '',
+      coachMessages: Array.isArray(loaded.coachMessages) ? loaded.coachMessages : [],
+      points: loaded.points && typeof loaded.points.total === 'number' ? loaded.points : emptyPoints(),
+      mealPlan: loaded.mealPlan ?? null,
+    })
   })
 
   useEffect(() => {

@@ -95,12 +95,41 @@ export interface DailyStats {
   sleepHours: number
 }
 
-export interface CheckIn {
+export interface ChatProposal {
+  targets: Targets
+  workoutDaysPerWeek: number
+  workoutPlan: WorkoutDay[]
+  changes: string[]
+  applied: boolean
+}
+
+export interface ChatMessage {
   id: string
-  date: string
-  issues: Challenge[]
-  notes: string
-  recommendation: string
+  role: 'user' | 'assistant'
+  content: string
+  proposal?: ChatProposal
+}
+
+export interface PointsState {
+  total: number
+  awardedWorkoutIds: string[]
+  awardedNutritionDates: string[]
+}
+
+export interface PlannedMeal {
+  mealType: MealType
+  time: string // 24-hour "HH:MM"
+  name: string
+  calories: number
+  protein: number
+  carbs: number
+  fat: number
+  note?: string
+}
+
+export interface MealPlan {
+  meals: PlannedMeal[]
+  generatedAt: string // ISO datetime
 }
 
 export interface AppState {
@@ -110,6 +139,8 @@ export interface AppState {
   meals: Meal[]
   workoutPlan: WorkoutDay[]
   dailyStats: DailyStats[]
-  checkIns: CheckIn[]
+  coachMessages: ChatMessage[]
   currentWeekStart: string
+  points: PointsState
+  mealPlan: MealPlan | null
 }

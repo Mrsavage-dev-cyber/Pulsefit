@@ -8,7 +8,8 @@ import { Button } from '../components/ui/Button'
 import { FormField, TextInput } from '../components/ui/FormField'
 import { challengeLabel } from '../lib/recommendations'
 import { ACTIVITY_LABELS, EXPERIENCE_LABELS, FOOD_PREFERENCE_LABELS, GOAL_LABELS } from '../lib/labels'
-import { clearApiKey, getApiKey, setApiKey } from '../lib/aiConfig'
+import { clearApiKey, getApiKey, setApiKey } from '../lib/geminiConfig'
+import { generateTargets, PlanGenerationError } from '../lib/planGenerator'
 
 export function Settings() {
   const { state, dispatch } = useApp()
@@ -17,6 +18,8 @@ export function Settings() {
   const [justRecalculated, setJustRecalculated] = useState(false)
   const [apiKeyInput, setApiKeyInput] = useState(() => getApiKey() ?? '')
   const [justSavedKey, setJustSavedKey] = useState(false)
+  const [recalculating, setRecalculating] = useState(false)
+  const [recalcError, setRecalcError] = useState('')
 
   const { profile, targets } = state
   if (!profile || !targets) return null
@@ -32,10 +35,25 @@ export function Settings() {
     setApiKeyInput('')
   }
 
-  function recalc() {
-    dispatch({ type: 'RECALC_TARGETS' })
-    setJustRecalculated(true)
-    setTimeout(() => setJustRecalculated(false), 2500)
+  async function recalc() {
+    if (!profile) return
+    const apiKey = getApiKey()
+    if (!apiKey) {
+      setRecalcError('Add your Gemini API key below first.')
+      return
+    }
+    setRecalculating(true)
+    setRecalcError('')
+    try {
+      const newTargets = await generateTargets(apiKey, profile)
+      dispatch({ type: 'RECALC_TARGETS', targets: newTargets })
+      setJustRecalculated(true)
+      setTimeout(() => setJustRecalculated(false), 2500)
+    } catch (err) {
+      setRecalcError(err instanceof PlanGenerationError ? err.message : 'Something went wrong recalculating your targets.')
+    } finally {
+      setRecalculating(false)
+    }
   }
 
   function restart() {
@@ -90,7 +108,7 @@ export function Settings() {
       </Card>
 
       <Card>
-        <CardHeader title="Your targets" subtitle="Recalculates from your current profile and weight" />
+        <CardHeader title="Your targets" subtitle="Recalculated by Gemini from your current profile and weight" />
         <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-3">
           <Field label="Calories" value={`${targets.calorieTarget.toLocaleString()} kcal`} />
           <Field label="Protein" value={`${targets.proteinG} g`} />
@@ -102,19 +120,20 @@ export function Settings() {
             value={`${targets.weeklyWeightChangeKg > 0 ? '+' : ''}${targets.weeklyWeightChangeKg.toFixed(2)} kg`}
           />
         </div>
-        <Button variant="secondary" className="mt-4 w-full" onClick={recalc}>
-          <RefreshCw size={15} /> {justRecalculated ? 'Targets updated' : 'Recalculate targets'}
+        <Button variant="secondary" className="mt-4 w-full" onClick={() => void recalc()} disabled={recalculating}>
+          <RefreshCw size={15} /> {recalculating ? 'Recalculating…' : justRecalculated ? 'Targets updated' : 'Recalculate targets'}
         </Button>
+        {recalcError && <p className="mt-2 text-xs text-[var(--color-critical)]">{recalcError}</p>}
       </Card>
 
       <Card>
-        <CardHeader title="AI food scanning" subtitle="Needed to use 'Scan food' on the Nutrition page" />
-        <FormField label="Anthropic API key" hint="Get one at console.anthropic.com. Stored only in this browser's local storage.">
+        <CardHeader title="Gemini AI" subtitle="Powers food photo scanning, workout plan generation, and nutrition targets" />
+        <FormField label="Gemini API key" hint="Get one at aistudio.google.com/apikey. Stored only in this browser's local storage.">
           <TextInput
             type="password"
             value={apiKeyInput}
             onChange={(e) => setApiKeyInput(e.target.value)}
-            placeholder="sk-ant-..."
+            placeholder="AIza..."
             autoComplete="off"
           />
         </FormField>
@@ -129,9 +148,9 @@ export function Settings() {
           )}
         </div>
         <p className="mt-3 text-[11px] leading-relaxed text-[var(--color-text-muted)]">
-          Photos you scan are sent directly from your browser to Anthropic's API using this key — not to any PulseFit
-          server. Anyone with access to this browser's storage could read the key, so only use a key you're
-          comfortable having client-side.
+          Photos and profile data are sent directly from your browser to Google's Gemini API using this key — not to
+          any PulseFit server. Anyone with access to this browser's storage could read the key, so only use a key
+          you're comfortable having client-side.
         </p>
       </Card>
 
@@ -150,8 +169,9 @@ export function Settings() {
       </Card>
 
       <p className="px-1 text-[11px] leading-relaxed text-[var(--color-text-muted)]">
-        PulseFit stores all data locally in this browser only. Nothing is sent to a server other than Anthropic's API
-        when you use AI food scanning, and clearing your browser data will remove it.
+        PulseFit stores all data locally in this browser only. Nothing is sent to a server other than Google's Gemini
+        API when you use AI food scanning, generate your plan, or recalculate targets, and clearing your browser data
+        will remove it.
       </p>
     </div>
   )

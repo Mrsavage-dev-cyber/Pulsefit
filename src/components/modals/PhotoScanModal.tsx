@@ -3,7 +3,7 @@ import { Camera, Check, Plus, RotateCcw } from 'lucide-react'
 import clsx from 'clsx'
 import { Modal } from '../ui/Modal'
 import { Button } from '../ui/Button'
-import { getApiKey } from '../../lib/aiConfig'
+import { getApiKey } from '../../lib/geminiConfig'
 import { analyzeFoodPhoto, FoodPhotoAnalysisError, type DetectedFood } from '../../lib/foodPhotoAnalysis'
 import type { MealType } from '../../types'
 
@@ -71,7 +71,7 @@ export function PhotoScanModal({
     if (!file) return
     const apiKey = getApiKey()
     if (!apiKey) {
-      setError('Add your Anthropic API key in Settings first to use AI food scanning.')
+      setError('Add your Gemini API key in Settings first to use AI food scanning.')
       return
     }
     setAnalyzing(true)
