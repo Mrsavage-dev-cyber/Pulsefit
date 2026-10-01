@@ -4,7 +4,6 @@ import { Card, CardHeader } from '../ui/Card'
 import { Button } from '../ui/Button'
 import { useApp } from '../../context/AppContext'
 import { generateMealPlan, PlanGenerationError } from '../../lib/planGenerator'
-import { getApiKey } from '../../lib/geminiConfig'
 import { formatPlanTime, todayISO } from '../../lib/calculations'
 import type { PlannedMeal } from '../../types'
 
@@ -18,15 +17,10 @@ export function MealPlanCard() {
 
   async function regenerate() {
     if (!profile || !targets) return
-    const apiKey = getApiKey()
-    if (!apiKey) {
-      setError('Add your Gemini API key in Settings first.')
-      return
-    }
     setGenerating(true)
     setError('')
     try {
-      const plan = await generateMealPlan(apiKey, profile, targets)
+      const plan = await generateMealPlan(profile, targets)
       dispatch({ type: 'SET_MEAL_PLAN', mealPlan: plan })
     } catch (err) {
       setError(err instanceof PlanGenerationError ? err.message : 'Something went wrong generating your meal plan.')

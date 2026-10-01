@@ -48,9 +48,7 @@ export interface CoachChatResult {
   proposal: ChatProposal | null
 }
 
-export async function sendCoachMessage(
-  apiKey: string,
-  state: AppState,
+export async function sendCoachMessage(state: AppState,
   history: ChatMessage[],
   userMessage: string,
 ): Promise<CoachChatResult> {
@@ -58,7 +56,7 @@ export async function sendCoachMessage(
     throw new PlanGenerationError('Complete onboarding first.')
   }
 
-  const ai = createGeminiClient(apiKey)
+  const ai = createGeminiClient()
 
   const transcript = history.map((m) => `${m.role === 'user' ? 'User' : 'Coach'}: ${m.content}`).join('\n')
 

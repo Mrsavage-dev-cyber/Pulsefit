@@ -26,11 +26,9 @@ const PLAN_SCHEMA = {
   required: ['targets', 'workoutPlan', 'mealPlan'],
 }
 
-export async function generatePlan(
-  apiKey: string,
-  profile: UserProfile,
+export async function generatePlan(profile: UserProfile,
 ): Promise<{ targets: Targets; workoutPlan: WorkoutDay[]; mealPlan: MealPlan }> {
-  const ai = createGeminiClient(apiKey)
+  const ai = createGeminiClient()
 
   const prompt = `You are a fitness and nutrition coach generating a personalized plan for a user of the PulseFit app.
 
@@ -81,8 +79,8 @@ const MEAL_PLAN_ONLY_SCHEMA = {
   required: ['mealPlan'],
 }
 
-export async function generateMealPlan(apiKey: string, profile: UserProfile, targets: Targets): Promise<MealPlan> {
-  const ai = createGeminiClient(apiKey)
+export async function generateMealPlan(profile: UserProfile, targets: Targets): Promise<MealPlan> {
+  const ai = createGeminiClient()
 
   const prompt = `You are a nutrition coach building a one-day meal plan for a user of the PulseFit app.
 
@@ -128,8 +126,8 @@ const TARGETS_ONLY_SCHEMA = {
   required: ['targets'],
 }
 
-export async function generateTargets(apiKey: string, profile: UserProfile): Promise<Targets> {
-  const ai = createGeminiClient(apiKey)
+export async function generateTargets(profile: UserProfile): Promise<Targets> {
+  const ai = createGeminiClient()
 
   const prompt = `You are a nutrition coach recalculating daily targets for a user of the PulseFit app after a profile or weight update.
 

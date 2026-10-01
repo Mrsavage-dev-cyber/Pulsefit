@@ -4,10 +4,8 @@ import { AlertCircle, CheckCircle2, MessageCircleHeart, Send, Sparkles } from 'l
 import { useApp } from '../context/AppContext'
 import { Card, CardHeader } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
-import { FormField, TextInput } from '../components/ui/FormField'
 import { challengeLabel } from '../lib/recommendations'
 import { sendCoachMessage, PlanGenerationError } from '../lib/coachChat'
-import { getApiKey, setApiKey } from '../lib/geminiConfig'
 import type { ChatMessage, ChatProposal, Challenge } from '../types'
 
 const QUICK_PROMPTS: { issue: Challenge; text: string }[] = [
@@ -24,22 +22,19 @@ export function CheckIn() {
   const { state, dispatch } = useApp()
   const [draft, setDraft] = useState('')
   const [sending, setSending] = useState(false)
-  const [keyError, setKeyError] = useState('')
   const [pendingRetry, setPendingRetry] = useState<{ history: ChatMessage[]; text: string; error: string } | null>(null)
-  const [apiKeyInput, setApiKeyInput] = useState(() => getApiKey() ?? '')
   const bottomRef = useRef<HTMLDivElement>(null)
 
   const messages = state.coachMessages
-  const hasKey = !!getApiKey()
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
   }, [messages.length, sending, pendingRetry])
 
-  async function callCoach(apiKey: string, history: ChatMessage[], text: string) {
+  async function callCoach(history: ChatMessage[], text: string) {
     setSending(true)
     try {
-      const result = await sendCoachMessage(apiKey, state, history, text)
+      const result = await sendCoachMessage(state, history, text)
       const assistantMessage: ChatMessage = {
         id: `m-${Date.now()}-a`,
         role: 'assistant',
@@ -59,33 +54,16 @@ export function CheckIn() {
   async function send(text: string) {
     const trimmed = text.trim()
     if (!trimmed || sending) return
-    const apiKey = getApiKey()
-    if (!apiKey) {
-      setKeyError('Add your Gemini API key below to start chatting.')
-      return
-    }
-
-    setKeyError('')
     const history = messages
     const userMessage: ChatMessage = { id: `m-${Date.now()}-u`, role: 'user', content: trimmed }
     dispatch({ type: 'ADD_COACH_MESSAGE', message: userMessage })
     setDraft('')
-    await callCoach(apiKey, history, trimmed)
+    await callCoach(history, trimmed)
   }
 
   function retry() {
     if (!pendingRetry || sending) return
-    const apiKey = getApiKey()
-    if (!apiKey) return
-    void callCoach(apiKey, pendingRetry.history, pendingRetry.text)
-  }
-
-  function saveKey() {
-    const trimmed = apiKeyInput.trim()
-    if (!trimmed) return
-    setApiKey(trimmed)
-    setApiKeyInput(trimmed)
-    setKeyError('')
+    void callCoach(pendingRetry.history, pendingRetry.text)
   }
 
   return (
@@ -147,49 +125,30 @@ export function CheckIn() {
         )}
 
         <div className="border-t border-[var(--color-border)] p-4">
-          {!hasKey ? (
-            <div className="space-y-3">
-              <p className="text-xs text-[var(--color-text-secondary)]">Add your Gemini API key to start chatting with your coach.</p>
-              <FormField label="Gemini API key">
-                <TextInput
-                  type="password"
-                  value={apiKeyInput}
-                  onChange={(e) => setApiKeyInput(e.target.value)}
-                  placeholder="AIza..."
-                  autoComplete="off"
-                />
-              </FormField>
-              <Button className="w-full" onClick={saveKey} disabled={!apiKeyInput.trim()}>
-                Save key
-              </Button>
-            </div>
-          ) : (
-            <form
-              onSubmit={(e) => {
-                e.preventDefault()
-                void send(draft)
+          <form
+            onSubmit={(e) => {
+              e.preventDefault()
+              void send(draft)
+            }}
+            className="flex items-end gap-2"
+          >
+            <textarea
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault()
+                  void send(draft)
+                }
               }}
-              className="flex items-end gap-2"
-            >
-              <textarea
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault()
-                    void send(draft)
-                  }
-                }}
-                placeholder="Tell your coach what's going on..."
-                rows={1}
-                className="max-h-32 flex-1 resize-none rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3.5 py-2.5 text-sm outline-none placeholder:text-[var(--color-text-muted)] focus:border-[var(--color-brand)]"
-              />
-              <Button type="submit" disabled={sending || !draft.trim()} aria-label="Send">
-                <Send size={16} />
-              </Button>
-            </form>
-          )}
-          {keyError && <p className="mt-2 text-xs text-[var(--color-critical)]">{keyError}</p>}
+              placeholder="Tell your coach what's going on..."
+              rows={1}
+              className="max-h-32 flex-1 resize-none rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3.5 py-2.5 text-sm outline-none placeholder:text-[var(--color-text-muted)] focus:border-[var(--color-brand)]"
+            />
+            <Button type="submit" disabled={sending || !draft.trim()} aria-label="Send">
+              <Send size={16} />
+            </Button>
+          </form>
         </div>
       </Card>
     </div>

@@ -6,7 +6,6 @@ import { useApp } from '../context/AppContext'
 import { Button } from '../components/ui/Button'
 import { FormField, TextInput } from '../components/ui/FormField'
 import { generatePlan, PlanGenerationError } from '../lib/planGenerator'
-import { getApiKey, setApiKey } from '../lib/geminiConfig'
 import { challengeLabel } from '../lib/recommendations'
 import type {
   ActivityLevel,
@@ -128,7 +127,6 @@ export function Onboarding() {
     }
   }, [draft, canProceed, step])
 
-  const [apiKeyInput, setApiKeyInput] = useState(() => getApiKey() ?? '')
   const [plan, setPlan] = useState<{ targets: Targets; workoutPlan: WorkoutDay[]; mealPlan: MealPlan } | null>(null)
   const [generating, setGenerating] = useState(false)
   const [genError, setGenError] = useState('')
@@ -139,12 +137,10 @@ export function Onboarding() {
 
   async function generate() {
     if (!previewProfile) return
-    const key = getApiKey()
-    if (!key) return
     setGenerating(true)
     setGenError('')
     try {
-      const result = await generatePlan(key, previewProfile)
+      const result = await generatePlan(previewProfile)
       setPlan(result)
     } catch (err) {
       setGenError(err instanceof PlanGenerationError ? err.message : 'Something went wrong generating your plan.')
@@ -153,15 +149,8 @@ export function Onboarding() {
     }
   }
 
-  function saveKeyAndGenerate() {
-    const trimmed = apiKeyInput.trim()
-    if (!trimmed) return
-    setApiKey(trimmed)
-    void generate()
-  }
-
   useEffect(() => {
-    if (step === 5 && getApiKey() && !plan && !generating && !genError) {
+    if (step === 5 && !plan && !generating && !genError) {
       void generate()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -368,35 +357,15 @@ export function Onboarding() {
           </div>
         )}
 
-        {step === 5 && previewProfile && !getApiKey() && (
-          <div className="space-y-4">
-            <p className="text-sm text-[var(--color-text-secondary)]">
-              PulseFit uses Google's Gemini API to generate your personalized nutrition targets and workout plan. Add
-              your API key to continue.
-            </p>
-            <FormField label="Gemini API key" hint="Get one at aistudio.google.com/apikey. Stored only in this browser's local storage.">
-              <TextInput
-                type="password"
-                value={apiKeyInput}
-                onChange={(e) => setApiKeyInput(e.target.value)}
-                placeholder="AIza..."
-                autoComplete="off"
-              />
-            </FormField>
-            <Button className="w-full" onClick={saveKeyAndGenerate} disabled={!apiKeyInput.trim()}>
-              <Sparkles size={16} /> Generate my plan
-            </Button>
-          </div>
-        )}
 
-        {step === 5 && previewProfile && getApiKey() && generating && (
+        {step === 5 && previewProfile && generating && (
           <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
             <Sparkles size={24} className="animate-pulse text-[var(--color-brand)]" />
             <p className="text-sm font-medium text-[var(--color-text-secondary)]">Gemini is building your nutrition targets and workout plan…</p>
           </div>
         )}
 
-        {step === 5 && previewProfile && getApiKey() && !generating && genError && (
+        {step === 5 && previewProfile && !generating && genError && (
           <div className="space-y-4">
             <p className="text-sm text-[var(--color-critical)]">{genError}</p>
             <Button className="w-full" onClick={() => void generate()}>

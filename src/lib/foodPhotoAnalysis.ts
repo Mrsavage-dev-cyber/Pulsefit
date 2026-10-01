@@ -35,8 +35,8 @@ const RESPONSE_SCHEMA = {
   required: ['items'],
 }
 
-export async function analyzeFoodPhoto(apiKey: string, base64Data: string, mediaType: string): Promise<DetectedFood[]> {
-  const ai = createGeminiClient(apiKey)
+export async function analyzeFoodPhoto(base64Data: string, mediaType: string): Promise<DetectedFood[]> {
+  const ai = createGeminiClient()
 
   let text: string | undefined
   try {

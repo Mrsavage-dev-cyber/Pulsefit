@@ -3,7 +3,6 @@ import { Camera, Check, Plus, RotateCcw } from 'lucide-react'
 import clsx from 'clsx'
 import { Modal } from '../ui/Modal'
 import { Button } from '../ui/Button'
-import { getApiKey } from '../../lib/geminiConfig'
 import { analyzeFoodPhoto, FoodPhotoAnalysisError, type DetectedFood } from '../../lib/foodPhotoAnalysis'
 import type { MealType } from '../../types'
 
@@ -69,16 +68,11 @@ export function PhotoScanModal({
 
   async function analyze() {
     if (!file) return
-    const apiKey = getApiKey()
-    if (!apiKey) {
-      setError('Add your Gemini API key in Settings first to use AI food scanning.')
-      return
-    }
     setAnalyzing(true)
     setError('')
     try {
       const base64 = await fileToBase64(file)
-      const items = await analyzeFoodPhoto(apiKey, base64, file.type)
+      const items = await analyzeFoodPhoto(base64, file.type)
       setResults(items)
     } catch (err) {
       setError(err instanceof FoodPhotoAnalysisError ? err.message : 'Something went wrong analyzing that photo.')

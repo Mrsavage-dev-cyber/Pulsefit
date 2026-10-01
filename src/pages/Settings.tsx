@@ -1,14 +1,12 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Check, LogOut, RefreshCw, RotateCcw } from 'lucide-react'
+import { LogOut, RefreshCw, RotateCcw } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { useAuth } from '../context/AuthContext'
 import { Card, CardHeader } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
-import { FormField, TextInput } from '../components/ui/FormField'
 import { challengeLabel } from '../lib/recommendations'
 import { ACTIVITY_LABELS, EXPERIENCE_LABELS, FOOD_PREFERENCE_LABELS, GOAL_LABELS } from '../lib/labels'
-import { clearApiKey, getApiKey, setApiKey } from '../lib/geminiConfig'
 import { generateTargets, PlanGenerationError } from '../lib/planGenerator'
 
 export function Settings() {
@@ -16,36 +14,18 @@ export function Settings() {
   const { user, signOut } = useAuth()
   const navigate = useNavigate()
   const [justRecalculated, setJustRecalculated] = useState(false)
-  const [apiKeyInput, setApiKeyInput] = useState(() => getApiKey() ?? '')
-  const [justSavedKey, setJustSavedKey] = useState(false)
   const [recalculating, setRecalculating] = useState(false)
   const [recalcError, setRecalcError] = useState('')
 
   const { profile, targets } = state
   if (!profile || !targets) return null
 
-  function saveKey() {
-    setApiKey(apiKeyInput.trim())
-    setJustSavedKey(true)
-    setTimeout(() => setJustSavedKey(false), 2000)
-  }
-
-  function removeKey() {
-    clearApiKey()
-    setApiKeyInput('')
-  }
-
   async function recalc() {
     if (!profile) return
-    const apiKey = getApiKey()
-    if (!apiKey) {
-      setRecalcError('Add your Gemini API key below first.')
-      return
-    }
     setRecalculating(true)
     setRecalcError('')
     try {
-      const newTargets = await generateTargets(apiKey, profile)
+      const newTargets = await generateTargets(profile)
       dispatch({ type: 'RECALC_TARGETS', targets: newTargets })
       setJustRecalculated(true)
       setTimeout(() => setJustRecalculated(false), 2500)
@@ -126,33 +106,6 @@ export function Settings() {
         {recalcError && <p className="mt-2 text-xs text-[var(--color-critical)]">{recalcError}</p>}
       </Card>
 
-      <Card>
-        <CardHeader title="Gemini AI" subtitle="Powers food photo scanning, workout plan generation, and nutrition targets" />
-        <FormField label="Gemini API key" hint="Get one at aistudio.google.com/apikey. Stored only in this browser's local storage.">
-          <TextInput
-            type="password"
-            value={apiKeyInput}
-            onChange={(e) => setApiKeyInput(e.target.value)}
-            placeholder="AIza..."
-            autoComplete="off"
-          />
-        </FormField>
-        <div className="mt-3 flex gap-2">
-          <Button className="flex-1" onClick={saveKey} disabled={!apiKeyInput.trim()}>
-            {justSavedKey ? <Check size={15} /> : null} {justSavedKey ? 'Saved' : 'Save key'}
-          </Button>
-          {getApiKey() && (
-            <Button variant="secondary" onClick={removeKey}>
-              Remove
-            </Button>
-          )}
-        </div>
-        <p className="mt-3 text-[11px] leading-relaxed text-[var(--color-text-muted)]">
-          Photos and profile data are sent directly from your browser to Google's Gemini API using this key — not to
-          any PulseFit server. Anyone with access to this browser's storage could read the key, so only use a key
-          you're comfortable having client-side.
-        </p>
-      </Card>
 
       <Card>
         <CardHeader title="Account" subtitle={user?.email} />
