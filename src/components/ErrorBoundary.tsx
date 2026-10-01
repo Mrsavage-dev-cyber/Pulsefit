@@ -1,4 +1,5 @@
 import { Component, type ReactNode } from 'react'
+import { clearAllStates } from '../lib/storage'
 
 interface Props {
   children: ReactNode
@@ -20,7 +21,7 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   handleReset = () => {
-    localStorage.removeItem('pulsefit_state_v1')
+    clearAllStates()
     window.location.reload()
   }
 

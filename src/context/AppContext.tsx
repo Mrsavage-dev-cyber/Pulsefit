@@ -1,9 +1,9 @@
 import { createContext, useContext, useEffect, useMemo, useReducer, type ReactNode } from 'react'
 import { formatDate } from '../lib/calculations'
 import { awardNutritionPoints, awardWorkoutPoints, emptyPoints, nutritionGoalMet, revokeWorkoutPoints } from '../lib/points'
-import { seedDailyStats, seedTodayMeals } from '../lib/seedData'
 import { sumMacros } from '../lib/selectors'
 import { loadState, saveState } from '../lib/storage'
+import { useAuth } from './AuthContext'
 import type { AppState, ChatMessage, Meal, MealPlan, Targets, UserProfile, WeightEntry, WorkoutDay } from '../types'
 
 type Action =
@@ -78,9 +78,9 @@ function reducer(state: AppState, action: Action): AppState {
         profile: action.profile,
         targets,
         weightEntries: [{ id: `w-${startDate}`, date: startDate, weightKg: action.profile.currentWeightKg }],
-        meals: seedTodayMeals(targets),
+        meals: [],
         workoutPlan: action.workoutPlan,
-        dailyStats: seedDailyStats(targets),
+        dailyStats: [{ date: todayISO(), steps: 0, waterMl: 0, sleepHours: 0 }],
         coachMessages: [],
         currentWeekStart: mondayOf(todayISO()),
         points: emptyPoints(),
@@ -188,8 +188,19 @@ function isValidState(loaded: unknown): loaded is AppState {
 }
 
 export function AppProvider({ children }: { children: ReactNode }) {
+  const { user } = useAuth()
+  // Remount per account so switching users loads that user's own state, never the previous one's.
+  return (
+    <UserAppProvider key={user?.id ?? 'signed-out'} userId={user?.id ?? null}>
+      {children}
+    </UserAppProvider>
+  )
+}
+
+function UserAppProvider({ userId, children }: { userId: string | null; children: ReactNode }) {
   const [state, dispatch] = useReducer(reducerWithNormalize, emptyState, () => {
-    const loaded = loadState<AppState>()
+    if (!userId) return emptyState
+    const loaded = loadState<AppState>(userId)
     if (!isValidState(loaded)) return emptyState
     return normalize({
       ...loaded,
@@ -201,8 +212,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   })
 
   useEffect(() => {
-    saveState(state)
-  }, [state])
+    if (userId) saveState(userId, state)
+  }, [userId, state])
 
   const value = useMemo(() => ({ state, dispatch }), [state])
 
