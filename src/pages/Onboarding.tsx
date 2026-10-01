@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import clsx from 'clsx'
 import { Activity, ArrowLeft, ArrowRight, Check, Sparkles } from 'lucide-react'
@@ -13,11 +13,8 @@ import type {
   Experience,
   FoodPreference,
   Goal,
-  MealPlan,
   Sex,
-  Targets,
   UserProfile,
-  WorkoutDay,
 } from '../types'
 
 const GOAL_OPTIONS: { value: Goal; title: string; desc: string }[] = [
@@ -82,7 +79,7 @@ const initialDraft: Draft = {
   challenges: [],
 }
 
-const STEP_TITLES = ['About you', 'Your goal', 'Activity & training', 'Food preferences', 'Current challenges', 'Your plan']
+const STEP_TITLES = ['About you', 'Your goal', 'Activity & training', 'Food preferences', 'Current challenges']
 
 export function Onboarding() {
   const { dispatch } = useApp()
@@ -108,7 +105,7 @@ export function Onboarding() {
   }, [step, draft])
 
   const previewProfile: UserProfile | null = useMemo(() => {
-    if (!canProceed && step < 5) return null
+    if (!canProceed) return null
     if (!draft.age || !draft.heightCm || !draft.currentWeightKg || !draft.goalWeightKg) return null
     return {
       name: draft.name || 'there',
@@ -125,9 +122,8 @@ export function Onboarding() {
       challenges: draft.challenges,
       createdAt: new Date().toISOString(),
     }
-  }, [draft, canProceed, step])
+  }, [draft, canProceed])
 
-  const [plan, setPlan] = useState<{ targets: Targets; workoutPlan: WorkoutDay[]; mealPlan: MealPlan } | null>(null)
   const [generating, setGenerating] = useState(false)
   const [genError, setGenError] = useState('')
 
@@ -135,37 +131,25 @@ export function Onboarding() {
     return list.includes(value) ? list.filter((v) => v !== value) : [...list, value]
   }
 
-  async function generate() {
-    if (!previewProfile) return
+  // Builds the plan with Gemini and drops the user straight onto the home page.
+  async function finish() {
+    if (!previewProfile || generating) return
     setGenerating(true)
     setGenError('')
     try {
-      const result = await generatePlan(previewProfile)
-      setPlan(result)
+      const plan = await generatePlan(previewProfile)
+      dispatch({
+        type: 'ONBOARD',
+        profile: previewProfile,
+        targets: plan.targets,
+        workoutPlan: plan.workoutPlan,
+        mealPlan: plan.mealPlan,
+      })
+      navigate('/', { replace: true })
     } catch (err) {
       setGenError(err instanceof PlanGenerationError ? err.message : 'Something went wrong generating your plan.')
-    } finally {
       setGenerating(false)
     }
-  }
-
-  useEffect(() => {
-    if (step === 5 && !plan && !generating && !genError) {
-      void generate()
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step])
-
-  function finish() {
-    if (!previewProfile || !plan) return
-    dispatch({
-      type: 'ONBOARD',
-      profile: previewProfile,
-      targets: plan.targets,
-      workoutPlan: plan.workoutPlan,
-      mealPlan: plan.mealPlan,
-    })
-    navigate('/', { replace: true })
   }
 
   return (
@@ -357,70 +341,12 @@ export function Onboarding() {
           </div>
         )}
 
-
-        {step === 5 && previewProfile && generating && (
-          <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
-            <Sparkles size={24} className="animate-pulse text-[var(--color-brand)]" />
-            <p className="text-sm font-medium text-[var(--color-text-secondary)]">Gemini is building your nutrition targets and workout plan…</p>
-          </div>
-        )}
-
-        {step === 5 && previewProfile && !generating && genError && (
-          <div className="space-y-4">
-            <p className="text-sm text-[var(--color-critical)]">{genError}</p>
-            <Button className="w-full" onClick={() => void generate()}>
-              Try again
-            </Button>
-          </div>
-        )}
-
-        {step === 5 && plan && previewProfile && (
-          <div className="space-y-4">
-            <div className="rounded-2xl border border-[var(--color-brand)]/30 bg-[var(--color-brand)]/10 p-4">
-              <div className="mb-1 flex items-center gap-1.5 text-[var(--color-brand)]">
-                <Sparkles size={16} />
-                <span className="text-xs font-bold uppercase tracking-wide">Your personalized plan</span>
-              </div>
-              <p className="text-3xl font-extrabold tabular">{plan.targets.calorieTarget.toLocaleString()} <span className="text-base font-medium text-[var(--color-text-secondary)]">kcal/day</span></p>
-            </div>
-            <div className="grid grid-cols-3 gap-3">
-              <MacroStat label="Protein" value={plan.targets.proteinG} color="var(--color-brand)" />
-              <MacroStat label="Carbs" value={plan.targets.carbG} color="var(--color-orange)" />
-              <MacroStat label="Fat" value={plan.targets.fatG} color="var(--color-violet)" />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)] p-3">
-                <p className="text-xs text-[var(--color-text-secondary)]">Step goal</p>
-                <p className="text-lg font-bold tabular">{plan.targets.stepGoal.toLocaleString()}</p>
-              </div>
-              <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)] p-3">
-                <p className="text-xs text-[var(--color-text-secondary)]">Weekly weight target</p>
-                <p className="text-lg font-bold tabular">
-                  {plan.targets.weeklyWeightChangeKg > 0 ? '+' : ''}
-                  {plan.targets.weeklyWeightChangeKg.toFixed(2)} kg
-                </p>
-              </div>
-            </div>
-            <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)] p-3">
-              <p className="mb-1 text-xs font-semibold text-[var(--color-text-secondary)]">
-                Meal plan · {plan.mealPlan.meals.length} meals/snacks
-              </p>
-              <p className="text-[11px] leading-relaxed text-[var(--color-text-muted)]">
-                {plan.mealPlan.meals.map((m) => m.name).join(' · ')}
-              </p>
-            </div>
-            <p className="rounded-xl bg-[var(--color-surface-2)] p-3 text-[11px] leading-relaxed text-[var(--color-text-muted)]">
-              This plan was generated by Gemini and is general wellness guidance, not medical advice. Consult a
-              qualified healthcare professional before starting a new nutrition or exercise program, especially if
-              you have any medical conditions.
-            </p>
-          </div>
-        )}
+        {genError && <p className="mt-4 text-sm text-[var(--color-critical)]">{genError}</p>}
       </div>
 
       <div className="mt-6 flex gap-3">
         {step > 0 && (
-          <Button variant="secondary" onClick={() => setStep((s) => s - 1)}>
+          <Button variant="secondary" onClick={() => setStep((s) => s - 1)} disabled={generating}>
             <ArrowLeft size={16} /> Back
           </Button>
         )}
@@ -429,8 +355,16 @@ export function Onboarding() {
             Next <ArrowRight size={16} />
           </Button>
         ) : (
-          <Button className="flex-1" onClick={finish} disabled={!plan}>
-            <Check size={16} /> Start using PulseFit
+          <Button className="flex-1" onClick={() => void finish()} disabled={!canProceed || generating}>
+            {generating ? (
+              <>
+                <Sparkles size={16} className="animate-pulse" /> Building your plan…
+              </>
+            ) : (
+              <>
+                <Check size={16} /> {genError ? 'Try again' : 'Create my plan'}
+              </>
+            )}
           </Button>
         )}
       </div>
@@ -484,15 +418,5 @@ function Chip({ label, selected, onClick }: { label: string; selected: boolean; 
     >
       {label}
     </button>
-  )
-}
-
-function MacroStat({ label, value, color }: { label: string; value: number; color: string }) {
-  return (
-    <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)] p-3 text-center">
-      <div className="mx-auto mb-1.5 h-1.5 w-6 rounded-full" style={{ backgroundColor: color }} />
-      <p className="text-base font-bold tabular">{value}g</p>
-      <p className="text-[11px] text-[var(--color-text-secondary)]">{label}</p>
-    </div>
   )
 }
